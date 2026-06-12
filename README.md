@@ -57,7 +57,7 @@ uvicorn backend.api.main:app --host 127.0.0.1 --port 8000
 
 ```bash
 # 1. Clone & setup
-git clone <repo> /home/ubuntu/sentinel
+git clone https://github.com/Thamindu-Dev/Sentinel-Intelligence.git /home/ubuntu/sentinel
 cd /home/ubuntu/sentinel
 python3 -m venv venv
 source venv/bin/activate
