@@ -10,14 +10,14 @@ const SentinelFilters = (() => {
     // Current active filter state
     let _state = {
         severity: null,  // null = all, or "Critical" | "High" | "Medium" | "Low"
-        status: null,    // null = all, or "New" | "Reviewed"
+        status: "New",   // default to "New" to hide reviewed items
     };
 
 
     // --- State management ---
 
     function getState() {
-        return { ...state };
+        return { ..._state };
     }
 
     function setSeverity(severity) {
@@ -30,7 +30,7 @@ const SentinelFilters = (() => {
 
     function reset() {
         _state.severity = null;
-        _state.status = null;
+        _state.status = "New";
     }
 
     function setFilter(key, value) {
@@ -38,8 +38,8 @@ const SentinelFilters = (() => {
             reset();
         } else if (["Critical", "High", "Medium", "Low"].includes(key)) {
             _state.severity = (_state.severity === key) ? null : key;
-        } else if (["New", "Reviewed"].includes(key)) {
-            _state.status = (_state.status === key) ? null : key;
+        } else if (key === "Reviewed") {
+            _state.status = (_state.status === "Reviewed") ? "New" : "Reviewed";
         }
     }
 
@@ -66,7 +66,7 @@ const SentinelFilters = (() => {
             let isActive = false;
 
             if (filterKey === "all") {
-                isActive = !_state.severity && !_state.status;
+                isActive = !_state.severity && (_state.status === "New");
             } else if (["Critical", "High", "Medium", "Low"].includes(filterKey)) {
                 isActive = _state.severity === filterKey;
             } else if (["New", "Reviewed"].includes(filterKey)) {

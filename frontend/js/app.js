@@ -10,6 +10,10 @@ const SentinelApp = (() => {
     // --- State ---
     let _allFindings = [];
     let _refreshInterval = null;
+    let _currentOffset = 0;
+    let _hasMore = true;
+    let _isLoadingMore = false;
+    const LIMIT = 30;
     const REFRESH_MS = 60 * 1000; // 60 seconds
 
 
@@ -31,18 +35,37 @@ const SentinelApp = (() => {
         }
     }
 
-    async function refreshFeed() {
+    async function refreshFeed(reset = true) {
+        if (reset) {
+            _currentOffset = 0;
+            _hasMore = true;
+            _allFindings = [];
+            if ($feed()) $feed().innerHTML = ''; // clear existing
+        }
+        
+        if (!_hasMore || _isLoadingMore) return;
+        _isLoadingMore = true;
+
         try {
-            _allFindings = await SentinelAPI.fetchFindings();
-            _renderFilteredFeed();
+            const filters = SentinelFilters.getState();
+            filters.limit = LIMIT;
+            filters.offset = _currentOffset;
+
+            const newFindings = await SentinelAPI.fetchFindings(filters);
+            
+            if (newFindings.length < LIMIT) {
+                _hasMore = false;
+            }
+
+            _allFindings = _allFindings.concat(newFindings);
+            _currentOffset += newFindings.length;
+
+            SentinelComponents.appendFeed($feed(), newFindings);
         } catch (err) {
             console.error("[App] Failed to refresh feed:", err);
+        } finally {
+            _isLoadingMore = false;
         }
-    }
-
-    function _renderFilteredFeed() {
-        const filtered = SentinelFilters.applyFilters(_allFindings);
-        SentinelComponents.renderFeed($feed(), filtered);
     }
 
     async function refreshAll() {
@@ -73,7 +96,7 @@ const SentinelApp = (() => {
         const filterKey = pill.dataset.filter;
         SentinelFilters.setFilter(filterKey);
         SentinelFilters.syncPillUI();
-        _renderFilteredFeed();
+        refreshFeed(true); // reset and fetch with new filters
     }
 
     async function _onReviewClick(e) {
@@ -93,7 +116,22 @@ const SentinelApp = (() => {
             const finding = _allFindings.find(f => f.id === id);
             if (finding) finding.status = "Reviewed";
 
-            _renderFilteredFeed();
+            // If we are currently viewing "New" items (the default), remove it from screen instantly
+            const currentStatus = SentinelFilters.getState().status;
+            if (currentStatus === "New") {
+                const card = btn.closest(".finding-card");
+                if (card) {
+                    card.style.transition = "all 0.3s ease";
+                    card.style.opacity = "0";
+                    card.style.transform = "scale(0.95)";
+                    setTimeout(() => card.remove(), 300);
+                }
+            } else {
+                // If we are in "Reviewed" filter (or another view), just update the button
+                btn.textContent = "✓ Reviewed";
+                btn.classList.add("reviewed");
+            }
+
         } catch (err) {
             console.error("[App] Failed to mark reviewed:", err);
             btn.disabled = false;
@@ -119,6 +157,33 @@ const SentinelApp = (() => {
     }
 
 
+    // --- Intersection Observer for Infinite Scroll ---
+
+    function _initIntersectionObserver() {
+        // Find or create scroll trigger
+        let trigger = document.getElementById("scroll-trigger");
+        if (!trigger) {
+            trigger = document.createElement("div");
+            trigger.id = "scroll-trigger";
+            trigger.style.height = "20px";
+            trigger.style.marginTop = "20px";
+            
+            const feedContainer = $feed();
+            if (feedContainer && feedContainer.parentElement) {
+                // Insert after feed
+                feedContainer.parentElement.insertBefore(trigger, feedContainer.nextSibling);
+            }
+        }
+
+        const observer = new IntersectionObserver((entries) => {
+            if (entries[0].isIntersecting) {
+                refreshFeed(false); // load more
+            }
+        }, { rootMargin: "100px" });
+
+        observer.observe(trigger);
+    }
+
     // --- Initialisation ---
 
     async function init() {
@@ -139,6 +204,8 @@ const SentinelApp = (() => {
         // Set "All" filter as active by default
         SentinelFilters.reset();
         SentinelFilters.syncPillUI();
+
+        _initIntersectionObserver();
 
         // Init settings module
         SentinelSettings.init();

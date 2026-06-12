@@ -108,53 +108,68 @@ async def process_queue() -> None:
     from backend.db.database import get_pending_raw_items, update_raw_item_status
     from backend.collector.sources import RawItem
 
-    # Fetch up to 50 pending items per run
-    pending = get_pending_raw_items(limit=50)
+    # Fetch up to 1000 pending items per run
+    pending = get_pending_raw_items(limit=1000)
     if not pending:
         logger.info("Phase 2: Queue empty. Nothing to analyse.")
         return
 
-    logger.info(f"Phase 2: Processing {len(pending)} pending items from queue...")
+    chunk_size = 5
+    chunks = [pending[i:i + chunk_size] for i in range(0, len(pending), chunk_size)]
     
-    # Convert DB rows back to RawItem objects
-    raw_objects = [
-        RawItem(
-            title=r["title"],
-            url=r["url"],
-            raw_text=r["raw_text"],
-            source_name=r["source_name"],
-            fetched_at=r["fetched_at"]
-        ) for r in pending
-    ]
+    from backend.collector.deduplicator import deduplicate_finding
+    from backend.collector.analyzer import analyse_chunk
+    import asyncio
 
-    findings, processed_urls = await analyse_batch(raw_objects)
-
-    # Note: analyse_batch handles LLM. The mapping back to queue IDs assumes ordered.
-    # We delete them from the queue so they don't pile up, BUT only if they were successfully processed.
-    from backend.db.database import delete_raw_item
-    for r in pending:
-        if r["url"] in processed_urls:
-            delete_raw_item(r["id"])
-        
-    logger.info(f"Got {len(findings)} valid findings from {len(pending)} queued items.")
-
-    # Deduplicate and store findings
-    inserted = 0
-    updated = 0
+    logger.info(f"Phase 2: Processing {len(pending)} pending items in {len(chunks)} chunks.")
+    
+    total_findings = 0
     errors = 0
 
-    for finding in findings:
+    for idx, chunk_dicts in enumerate(chunks):
+        logger.info(f"Processing chunk {idx + 1}/{len(chunks)}...")
+        
         try:
-            action, _ = deduplicate_finding(finding)
-            if action == "inserted":
-                inserted += 1
+            raw_objects = [
+                RawItem(
+                    title=r["title"],
+                    url=r["url"],
+                    raw_text=r["raw_text"],
+                    source_name=r["source_name"],
+                    fetched_at=r["fetched_at"]
+                ) for r in chunk_dicts
+            ]
+            
+            findings, success = await analyse_chunk(raw_objects)
+            
+            if success:
+                # Save to DB immediately
+                for finding in findings:
+                    try:
+                        action, _ = deduplicate_finding(finding)
+                        if action == "inserted":
+                            total_findings += 1
+                    except Exception as e:
+                        logger.error(f"Error storing finding '{finding.title[:50]}': {e}")
+                
+                # Update status (replaces delete_raw_item to keep for history)
+                for r in chunk_dicts:
+                    update_raw_item_status(r["id"], "Processed")
             else:
-                updated += 1
+                errors += 1
+                logger.error(f"Chunk {idx + 1} failed, keeping its items in the queue.")
+                
+        except asyncio.CancelledError:
+            logger.info("Collector interrupted! Gracefully exiting phase 2...")
+            break
         except Exception as e:
             errors += 1
-            logger.error(f"Error storing finding '{finding.title[:50]}': {e}")
+            logger.error(f"Analysis task error on chunk {idx + 1}: {e}")
+            
+        if idx < len(chunks) - 1:
+            await asyncio.sleep(60)
 
-    logger.info(f"Storage: {inserted} new, {updated} merged, {errors} errors")
+    logger.info(f"Phase 2 Complete: {total_findings} valid new findings added to DB. Errors: {errors}")
 
 
 # ---------------------------------------------------------------------------
@@ -228,8 +243,14 @@ def _kill_old_instance():
 def main():
     """Synchronous entry point for cron / CLI."""
     _kill_old_instance()
-    asyncio.run(run_collector())
-
+    try:
+        asyncio.run(run_collector())
+    except KeyboardInterrupt:
+        # Expected manual cancellation
+        pass
+    except Exception as e:
+        print(f"Fatal error: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

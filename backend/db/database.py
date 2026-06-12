@@ -66,6 +66,7 @@ def get_all_findings(
     severity: Optional[str] = None,
     status: Optional[str] = None,
     limit: int = 100,
+    offset: int = 0,
 ) -> List[Dict[str, Any]]:
     """
     Fetch findings sorted by timestamp DESC.
@@ -91,8 +92,8 @@ def get_all_findings(
     if clauses:
         query += " WHERE " + " AND ".join(clauses)
 
-    query += " ORDER BY timestamp DESC LIMIT ?"
-    params.append(limit)
+    query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
 
     conn = get_connection()
     try:

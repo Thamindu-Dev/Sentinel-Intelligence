@@ -119,6 +119,25 @@ const SentinelComponents = (() => {
     }
 
 
+    function appendFeed(container, findings) {
+        // Remove empty state message if it exists
+        const emptyState = container.querySelector(".feed__empty");
+        if (emptyState) {
+            emptyState.remove();
+        }
+
+        if (!findings || findings.length === 0) {
+            return;
+        }
+
+        findings.forEach((finding, i) => {
+            const card = renderFindingCard(finding);
+            // Staggered animation delay based on index in this chunk
+            card.style.animationDelay = `${i * 30}ms`;
+            container.appendChild(card);
+        });
+    }
+
     // --- Utility: escape HTML ---
 
     function _escHtml(str) {
@@ -129,5 +148,5 @@ const SentinelComponents = (() => {
     }
 
 
-    return { renderStatBar, renderFindingCard, renderFeed };
+    return { renderStatBar, renderFindingCard, renderFeed, appendFeed };
 })();

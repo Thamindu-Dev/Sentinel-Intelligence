@@ -64,12 +64,14 @@ async def list_findings(
         None, alias="status", description="Filter by status: New or Reviewed"
     ),
     limit: int = Query(100, ge=1, le=500, description="Max results to return"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
 ):
     """Return all findings, sorted by timestamp (newest first)."""
     findings = get_all_findings(
         severity=severity,
         status=status_filter,
         limit=limit,
+        offset=offset,
     )
     return findings
 

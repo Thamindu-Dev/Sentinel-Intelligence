@@ -32,7 +32,7 @@ class SourceDef:
     url: str
     source_type: str          # "rss", "html", or "json_api"
     selector: str = "article" # CSS selector for HTML sources
-    max_items: int = 15       # Max entries to pull per source per run
+    max_items: int = 50       # Max entries to pull per source per run
 
 
 @dataclass
@@ -80,7 +80,7 @@ SOURCE_LIST: List[SourceDef] = [
     ),
     SourceDef(
         name="NIST NVD Recent",
-        url="https://services.nvd.nist.gov/rest/json/cves/2.0?resultsPerPage=20",
+        url="https://services.nvd.nist.gov/rest/json/cves/2.0?resultsPerPage=50",
         source_type="json_api",
     ),
 ]
@@ -249,17 +249,35 @@ async def _scrape_source(
 
 async def scrape_all_sources() -> List[RawItem]:
     """
-    Scrape all registered sources concurrently.
+    Scrape all enabled sources from the database concurrently.
     Returns a flat list of RawItems from all sources.
     Errors in one source do not affect others.
     """
+    from backend.db.database import get_enabled_sources
+    
+    db_sources = get_enabled_sources()
+    if not db_sources:
+        logger.info("No active sources found in database.")
+        return []
+
+    # Convert DB rows to SourceDef objects
+    active_sources = [
+        SourceDef(
+            name=s["name"],
+            url=s["url"],
+            source_type=s["source_type"],
+            selector=s["selector"],
+            max_items=s["max_items"]
+        ) for s in db_sources
+    ]
+
     async with _get_client() as client:
-        tasks = [_scrape_source(client, src) for src in SOURCE_LIST]
+        tasks = [_scrape_source(client, src) for src in active_sources]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
     all_items: List[RawItem] = []
     for i, result in enumerate(results):
-        source_name = SOURCE_LIST[i].name
+        source_name = active_sources[i].name
         if isinstance(result, Exception):
             logger.error(f"Source {source_name} raised: {result}")
         elif isinstance(result, list):

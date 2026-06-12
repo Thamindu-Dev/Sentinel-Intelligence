@@ -69,6 +69,7 @@ const SentinelAPI = (() => {
         if (filters.severity) params.set("severity", filters.severity);
         if (filters.status) params.set("status", filters.status);
         if (filters.limit) params.set("limit", filters.limit);
+        if (filters.offset !== undefined) params.set("offset", filters.offset);
 
         const query = params.toString();
         return _request(`/findings${query ? "?" + query : ""}`);
