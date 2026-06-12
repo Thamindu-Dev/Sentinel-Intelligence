@@ -13,15 +13,15 @@
 
 ## Sources
 
-| Source              | Type |
-| ------------------- | ---- |
-| NIST NVD (API)      | JSON |
-| CISA Advisories     | HTML |
-| BleepingComputer    | RSS  |
-| The Hacker News     | RSS  |
-| Krebs on Security   | RSS  |
-| Google Project Zero | RSS  |
-| *Dynamic Custom Sources* | RSS/HTML/JSON |
+| Source                   | Type          |
+| ------------------------ | ------------- |
+| NIST NVD (API)           | JSON          |
+| CISA Advisories          | HTML          |
+| BleepingComputer         | RSS           |
+| The Hacker News          | RSS           |
+| Krebs on Security        | RSS           |
+| Google Project Zero      | RSS           |
+| _Dynamic Custom Sources_ | RSS/HTML/JSON |
 
 ## Prerequisites
 
@@ -53,7 +53,7 @@ python -m backend.collector.collector
 uvicorn backend.api.main:app --host 127.0.0.1 --port 8000
 ```
 
-## Setup (OCI Linux Server)
+## Setup (Linux Server)
 
 ```bash
 # 1. Clone & setup
@@ -83,6 +83,36 @@ bash scripts/setup_cron.sh
 sudo ufw allow in on tailscale0
 sudo ufw reload
 ```
+
+## Hermes AI Agent Integration
+
+Sentinel includes a native plugin for the **Hermes AI Agent**, allowing Hermes to query your threat database, run the collector, and provide security summaries directly in chat.
+
+### Installation
+
+Once Sentinel is deployed to your server (e.g., `/home/ubuntu/sentinel`), symlink the `hermes_plugin` directory into your Hermes configuration:
+
+```bash
+mkdir -p ~/.hermes/plugins
+ln -s /home/ubuntu/sentinel/hermes_plugin ~/.hermes/plugins/sentinel
+```
+
+Restart the Hermes gateway to load the plugin.
+
+### Available Slash Commands
+
+Type these anywhere in the Hermes chat (CLI, Telegram, Discord):
+
+- `/sentinel status` — View a quick breakdown of pending and reviewed threats.
+- `/sentinel run` — Trigger the background collector to fetch new threats immediately.
+
+### Available Tools (for the LLM)
+
+Hermes can automatically use these tools when you ask questions:
+
+- `sentinel_get_findings` — E.g., _"What are the latest critical threats?"_
+- `sentinel_get_stats` — E.g., _"How many threats are in the database?"_
+- `sentinel_mark_reviewed` — E.g., _"Mark finding #69 as reviewed."_
 
 ## Access
 

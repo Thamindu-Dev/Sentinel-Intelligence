@@ -1,0 +1,7 @@
+name: sentinel
+version: 1.0.0
+description: Sentinel Intelligence Integration — query findings, view stats, and trigger the collector.
+provides_tools:
+  - sentinel_get_findings
+  - sentinel_get_stats
+  - sentinel_mark_reviewed
