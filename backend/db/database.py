@@ -132,7 +132,7 @@ def get_stats() -> Dict[str, Any]:
         last_updated = last_row["last_ts"] if last_row else None
 
         queue_row = conn.execute(
-            "SELECT COUNT(*) as queue_cnt FROM raw_items"
+            "SELECT COUNT(*) as queue_cnt FROM raw_items WHERE status = 'Pending'"
         ).fetchone()
         queue_count = queue_row["queue_cnt"] if queue_row else 0
 
@@ -242,7 +242,7 @@ def update_status(finding_id: int, new_status: str) -> Optional[Dict[str, Any]]:
 # Raw Items Queue (Scraper Phase)
 # ---------------------------------------------------------------------------
 
-def insert_raw_item(title: str, url: str, raw_text: str, source_name: str) -> None:
+def insert_raw_item(title: str, url: str, raw_text: str, source_name: str) -> bool:
     """Insert a scraped item into the queue. Ignores exact URLs to avoid duplication."""
     conn = get_connection()
     try:
@@ -261,6 +261,8 @@ def insert_raw_item(title: str, url: str, raw_text: str, source_name: str) -> No
                 (title, url, raw_text, source_name)
             )
             conn.commit()
+            return True
+        return False
     finally:
         conn.close()
 
@@ -475,7 +477,7 @@ def get_db_stats() -> Dict[str, Any]:
         source_count = conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
         enabled_count = conn.execute("SELECT COUNT(*) FROM sources WHERE enabled = 1").fetchone()[0]
 
-        queue_count = conn.execute("SELECT COUNT(*) FROM raw_items").fetchone()[0]
+        queue_count = conn.execute("SELECT COUNT(*) FROM raw_items WHERE status = 'Pending'").fetchone()[0]
 
         # Database file size
         db_size = 0

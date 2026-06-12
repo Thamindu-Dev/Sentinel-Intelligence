@@ -88,13 +88,16 @@ async def scrape_to_queue() -> None:
             skipped += 1
             continue
             
-        insert_raw_item(
+        was_inserted = insert_raw_item(
             title=item.title,
             url=item.url,
             raw_text=item.raw_text,
             source_name=item.source_name
         )
-        inserted += 1
+        if was_inserted:
+            inserted += 1
+        else:
+            skipped += 1
 
     logger.info(f"Phase 1 Complete: {inserted} queued for analysis, {skipped} skipped (already known).")
 
