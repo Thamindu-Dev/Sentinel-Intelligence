@@ -182,9 +182,14 @@
                     <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom:var(--space-md);">
                         Trigger a manual collector run. The collector scrapes all enabled sources, analyses items with Gemini, deduplicates, and stores findings. This typically takes 15–30 seconds.
                     </p>
-                    <button id="btn-run-collector" class="settings-btn settings-btn--collector">
-                        ▶ Run Collector Now
-                    </button>
+                    <div style="display:flex; gap:var(--space-sm); flex-wrap:wrap;">
+                        <button id="btn-run-collector" class="settings-btn settings-btn--collector">
+                            ▶ Run Collector Now
+                        </button>
+                        <button id="btn-stop-collector" class="settings-btn settings-btn--danger">
+                            ⏹ Stop Collector
+                        </button>
+                    </div>
                 </section>
 
                 <!-- --- Danger Zone --- -->

@@ -2,6 +2,8 @@
 
 import subprocess
 import threading
+import urllib.request
+import urllib.error
 from pathlib import Path
 
 from . import schemas, tools
@@ -41,20 +43,39 @@ def _handle_sentinel_command(raw_args: str) -> str:
         try:
             from backend.db.database import get_stats
             stats = get_stats()
-            # Format nicely
             text = "🛡️ **Sentinel Status**\n\n"
-            text += "**Severities:**\n"
-            for s in stats["severities"]:
-                text += f"- {s['severity']}: {s['count']}\n"
-            text += "\n**Statuses:**\n"
-            for s in stats["statuses"]:
-                text += f"- {s['status']}: {s['count']}\n"
+            text += "**Findings by Severity:**\n"
+            text += f"- 🔴 Critical: {stats.get('critical', 0)}\n"
+            text += f"- 🟠 High: {stats.get('high', 0)}\n"
+            text += f"- 🟡 Medium: {stats.get('medium', 0)}\n"
+            text += f"- 🟢 Low: {stats.get('low', 0)}\n"
+            text += f"- **Total: {stats.get('total', 0)}**\n\n"
+            text += f"📦 Queue: {stats.get('queue_count', 0)} pending\n"
+            last = stats.get('last_updated')
+            text += f"🕐 Last Updated: {last if last else 'Never'}\n"
             return text
         except Exception as e:
             return f"❌ Error fetching status: {str(e)}"
-            
+
+    elif cmd == "stop":
+        # Kill the running collector process
+        pid_file = _PROJECT_ROOT / "collector.pid"
+        if not pid_file.exists():
+            return "ℹ️ No collector process found (no PID file)."
+        try:
+            import os, signal
+            pid = int(pid_file.read_text().strip())
+            os.kill(pid, signal.SIGTERM)
+            pid_file.unlink(missing_ok=True)
+            return f"🛑 Collector process (PID {pid}) terminated."
+        except ProcessLookupError:
+            pid_file.unlink(missing_ok=True)
+            return "ℹ️ Collector process already stopped (stale PID file cleaned up)."
+        except Exception as e:
+            return f"❌ Error stopping collector: {str(e)}"
+
     else:
-        return "Usage: `/sentinel status` or `/sentinel run`"
+        return "Usage: `/sentinel status` | `/sentinel run` | `/sentinel stop`"
 
 def register(ctx):
     """Wire schemas to handlers and register commands."""
@@ -82,5 +103,5 @@ def register(ctx):
     ctx.register_command(
         "sentinel",
         handler=_handle_sentinel_command,
-        description="Sentinel controls: /sentinel status | /sentinel run"
+        description="Sentinel controls: /sentinel status | /sentinel run | /sentinel stop"
     )

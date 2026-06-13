@@ -130,3 +130,36 @@ async def run_collector_now():
     subprocess.Popen([sys.executable, "-m", "backend.collector.collector"])
     
     return {"message": "Collector run started. Any existing stalled runs were automatically killed."}
+
+
+@admin_router.post("/stop-collector")
+async def stop_collector():
+    """
+    Stop a running collector process by reading its PID file and sending SIGTERM.
+    """
+    import os
+    import signal
+    from pathlib import Path
+
+    pid_file = Path(settings.PROJECT_ROOT) / "collector.pid"
+
+    if not pid_file.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No collector process found (no PID file).",
+        )
+
+    try:
+        pid = int(pid_file.read_text().strip())
+        os.kill(pid, signal.SIGTERM)
+        pid_file.unlink(missing_ok=True)
+        return {"message": f"Collector process (PID {pid}) terminated."}
+    except ProcessLookupError:
+        pid_file.unlink(missing_ok=True)
+        return {"message": "Collector process already stopped (stale PID file cleaned up)."}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to stop collector: {str(e)}",
+        )
+

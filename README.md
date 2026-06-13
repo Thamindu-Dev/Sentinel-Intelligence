@@ -105,6 +105,7 @@ Type these anywhere in the Hermes chat (CLI, Telegram, Discord):
 
 - `/sentinel status` — View a quick breakdown of pending and reviewed threats.
 - `/sentinel run` — Trigger the background collector to fetch new threats immediately.
+- `/sentinel stop` — Kill the running collector process.
 
 ### Available Tools (for the LLM)
 
@@ -120,12 +121,20 @@ Open in your browser: `http://<tailscale-ip>:8000/`
 
 ## API Endpoints
 
-| Method  | Path                 | Auth | Description                                             |
-| ------- | -------------------- | ---- | ------------------------------------------------------- |
-| `GET`   | `/api/health`        | ✗    | Health check                                            |
-| `GET`   | `/api/stats`         | ✓    | Severity counts                                         |
-| `GET`   | `/api/findings`      | ✓    | List findings (filter: `?severity=Critical&status=New`) |
-| `PATCH` | `/api/findings/{id}` | ✓    | Mark finding as Reviewed                                |
+| Method  | Path                        | Auth | Description                                             |
+| ------- | --------------------------- | ---- | ------------------------------------------------------- |
+| `GET`   | `/api/health`               | ✗    | Health check                                            |
+| `GET`   | `/api/stats`                | ✓    | Severity counts                                         |
+| `GET`   | `/api/findings`             | ✓    | List findings (filter: `?severity=Critical&status=New`) |
+| `PATCH` | `/api/findings/{id}`        | ✓    | Mark finding as Reviewed                                |
+| `GET`   | `/api/admin/sources`        | ✓    | List all feed sources                                   |
+| `POST`  | `/api/admin/sources`        | ✓    | Add a new feed source                                   |
+| `PATCH` | `/api/admin/sources/{id}`   | ✓    | Enable/disable a feed source                            |
+| `DELETE`| `/api/admin/sources/{id}`   | ✓    | Delete a feed source                                    |
+| `GET`   | `/api/admin/db-stats`       | ✓    | Detailed database statistics                            |
+| `DELETE`| `/api/admin/clear-db`       | ✓    | Delete ALL findings (destructive)                       |
+| `POST`  | `/api/admin/run-collector`  | ✓    | Trigger a manual collector run                          |
+| `POST`  | `/api/admin/stop-collector` | ✓    | Kill the running collector process                      |
 
 All authenticated endpoints require: `X-API-Key: <your_key>`
 
@@ -145,7 +154,8 @@ backend/
 └── api/
     ├── auth.py               # X-API-Key middleware
     ├── models.py             # Pydantic schemas
-    ├── routes.py             # Endpoint definitions
+    ├── routes.py             # Public API endpoints
+    ├── admin_routes.py       # Admin/settings endpoints
     └── main.py               # FastAPI app + static serving
 
 frontend/
@@ -155,6 +165,8 @@ frontend/
     ├── api.js                # API client
     ├── components.js         # UI renderers
     ├── filters.js            # Filter state
+    ├── settings.js           # Settings page logic
+    ├── router.js             # SPA router
     └── app.js                # Orchestrator
 ```
 

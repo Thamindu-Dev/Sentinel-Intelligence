@@ -82,6 +82,18 @@ const SentinelSettings = (() => {
         return resp.json();
     }
 
+    async function _stopCollector() {
+        const resp = await fetch("/api/admin/stop-collector", {
+            method: "POST",
+            headers: { "X-API-Key": SentinelAPI._getKey() },
+        });
+        if (resp.status === 404) {
+            return { message: "No collector process is currently running." };
+        }
+        if (!resp.ok) throw new Error("Failed to stop collector");
+        return resp.json();
+    }
+
 
     // --- Rendering ---
 
@@ -260,10 +272,25 @@ const SentinelSettings = (() => {
                 btn.textContent = "Running...";
                 setTimeout(() => {
                     btn.disabled = false;
-                    btn.textContent = "Run Collector Now";
+                    btn.textContent = "▶ Run Collector Now";
                     refreshSettings();
                 }, 30000);
             }
+        }
+    }
+
+    async function handleStopCollector() {
+        const btn = document.getElementById("btn-stop-collector");
+        if (btn) { btn.disabled = true; btn.textContent = "Stopping..."; }
+
+        try {
+            const result = await _stopCollector();
+            alert(result.message);
+            await refreshSettings();
+        } catch (err) {
+            alert("Failed to stop collector: " + err.message);
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = "⏹ Stop Collector"; }
         }
     }
 
@@ -315,6 +342,9 @@ const SentinelSettings = (() => {
 
         const runBtn = document.getElementById("btn-run-collector");
         if (runBtn) runBtn.addEventListener("click", handleRunCollector);
+
+        const stopBtn = document.getElementById("btn-stop-collector");
+        if (stopBtn) stopBtn.addEventListener("click", handleStopCollector);
     }
 
 
