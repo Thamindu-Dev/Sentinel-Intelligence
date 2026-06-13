@@ -40,7 +40,7 @@ class Settings:
 
     # --- Gemini ---
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemma-4-26b-it"
+    GEMINI_MODEL: str = "gemini-2.5-flash-lite"
 
     # --- API Security ---
     API_KEY: str = "change_me"
@@ -63,7 +63,7 @@ class Settings:
 
     # --- Collector tunables ---
     GEMINI_RATE_LIMIT: int = 20
-    RAW_TEXT_MAX_CHARS: int = 3000
+    RAW_TEXT_MAX_CHARS: int = 1500
     RAW_TEXT_MIN_CHARS: int = 100
 
     # --- Derived (computed after init) ---
@@ -94,7 +94,7 @@ def _load_settings() -> Settings:
 
     return Settings(
         GEMINI_API_KEY=gemini_key,
-        GEMINI_MODEL=os.getenv("GEMINI_MODEL", "gemma-4-26b-it"),
+        GEMINI_MODEL=os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite"),
         API_KEY=os.getenv("API_KEY", "change_me"),
         API_HOST=os.getenv("API_HOST", "0.0.0.0"),
         API_PORT=int(os.getenv("API_PORT", "8000")),
@@ -103,7 +103,7 @@ def _load_settings() -> Settings:
         FRONTEND_DIR=os.getenv("FRONTEND_DIR", str(_PROJECT_ROOT / "frontend")),
         RETENTION_DAYS=int(os.getenv("RETENTION_DAYS", "7")),
         GEMINI_RATE_LIMIT=int(os.getenv("GEMINI_RATE_LIMIT", "20")),
-        RAW_TEXT_MAX_CHARS=int(os.getenv("RAW_TEXT_MAX_CHARS", "3000")),
+        RAW_TEXT_MAX_CHARS=int(os.getenv("RAW_TEXT_MAX_CHARS", "1500")),
         RAW_TEXT_MIN_CHARS=int(os.getenv("RAW_TEXT_MIN_CHARS", "100")),
     )
 

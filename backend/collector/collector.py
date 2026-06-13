@@ -166,6 +166,7 @@ async def process_queue() -> None:
         else:
             errors += 1
             failed_chunks.append((idx, chunk_dicts))
+            logger.warning(f"Chunk {idx + 1} failed. Waiting 60s before next chunk...")
                 
         if idx < len(chunks) - 1:
             await asyncio.sleep(60)
