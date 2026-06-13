@@ -1,7 +1,7 @@
 """
 Sentinel Intelligence — Collector Orchestrator
 
-This is the main entry point run by cron every hour.
+This is the main entry point run by cron or Hermes.
 It orchestrates: scrape → analyse → deduplicate → cleanup.
 
 Usage (cron or manual):
@@ -9,10 +9,11 @@ Usage (cron or manual):
 """
 
 import asyncio
+import glob
 import logging
+import os
 import sys
-from datetime import datetime, timezone
-from logging.handlers import RotatingFileHandler
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from backend.config import settings
@@ -25,23 +26,39 @@ from backend.collector.deduplicator import deduplicate_finding
 # Logging setup
 # ---------------------------------------------------------------------------
 
+def _cleanup_old_logs(log_dir: Path, max_age_days: int = 2) -> None:
+    """Delete log files older than max_age_days."""
+    cutoff = datetime.now() - timedelta(days=max_age_days)
+    for log_file in log_dir.glob("collector_*.log"):
+        try:
+            mtime = datetime.fromtimestamp(log_file.stat().st_mtime)
+            if mtime < cutoff:
+                log_file.unlink()
+        except Exception:
+            pass
+
+
 def _setup_logging() -> logging.Logger:
-    """Configure rotating file + console logging."""
+    """Configure per-run timestamped log file + console logging."""
     log_dir = Path(settings.PROJECT_ROOT) / "logs"
     log_dir.mkdir(exist_ok=True)
+
+    # Clean up logs older than 2 days
+    _cleanup_old_logs(log_dir, max_age_days=2)
 
     logger = logging.getLogger("sentinel")
     logger.setLevel(logging.INFO)
 
-    # Avoid adding handlers multiple times if re-imported
+    # Clear any existing handlers from previous imports
     if logger.handlers:
-        return logger
+        logger.handlers.clear()
 
-    # Rotating file handler: 5MB max, keep 3 backups
-    file_handler = RotatingFileHandler(
-        log_dir / "collector.log",
-        maxBytes=5 * 1024 * 1024,
-        backupCount=3,
+    # Per-run log file with timestamp
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_filename = f"collector_{timestamp}.log"
+
+    file_handler = logging.FileHandler(
+        log_dir / log_filename,
         encoding="utf-8",
     )
     file_handler.setFormatter(logging.Formatter(
@@ -107,9 +124,17 @@ async def scrape_to_queue() -> None:
 # ---------------------------------------------------------------------------
 
 async def process_queue() -> None:
-    """Pull pending items from the queue and send them to the LLM analyzer."""
+    """Pull pending items from the queue and send them to the LLM analyzer.
+    
+    Failed chunks are retried up to MAX_RETRIES times within the same run
+    with exponential backoff. This prevents data from waiting until the next
+    scheduled run while also capping retries to avoid infinite loops.
+    """
     from backend.db.database import get_pending_raw_items, update_raw_item_status
     from backend.collector.sources import RawItem
+
+    MAX_RETRIES = 2  # Max retries per failed chunk (so 3 total attempts)
+    RETRY_BACKOFF = 90  # Seconds to wait before retrying a failed chunk
 
     # Fetch up to 1000 pending items per run
     pending = get_pending_raw_items(limit=1000)
@@ -128,51 +153,93 @@ async def process_queue() -> None:
     
     total_findings = 0
     errors = 0
+    failed_chunks = []  # Collect failed chunks for retry
 
     for idx, chunk_dicts in enumerate(chunks):
         logger.info(f"Processing chunk {idx + 1}/{len(chunks)}...")
         
-        try:
-            raw_objects = [
-                RawItem(
-                    title=r["title"],
-                    url=r["url"],
-                    raw_text=r["raw_text"],
-                    source_name=r["source_name"],
-                    fetched_at=r["fetched_at"]
-                ) for r in chunk_dicts
-            ]
-            
-            findings, success = await analyse_chunk(raw_objects)
-            
-            if success:
-                # Save to DB immediately
-                for finding in findings:
-                    try:
-                        action, _ = deduplicate_finding(finding)
-                        if action == "inserted":
-                            total_findings += 1
-                    except Exception as e:
-                        logger.error(f"Error storing finding '{finding.title[:50]}': {e}")
-                
-                # Update status (replaces delete_raw_item to keep for history)
-                for r in chunk_dicts:
-                    update_raw_item_status(r["id"], "Processed")
-            else:
-                errors += 1
-                logger.error(f"Chunk {idx + 1} failed, keeping its items in the queue.")
-                
-        except asyncio.CancelledError:
-            logger.info("Collector interrupted! Gracefully exiting phase 2...")
+        success = await _process_single_chunk(chunk_dicts, idx + 1, len(chunks))
+        if success is None:  # CancelledError
             break
-        except Exception as e:
+        elif success >= 0:
+            total_findings += success
+        else:
             errors += 1
-            logger.error(f"Analysis task error on chunk {idx + 1}: {e}")
-            
+            failed_chunks.append((idx, chunk_dicts))
+                
         if idx < len(chunks) - 1:
             await asyncio.sleep(60)
 
+    # --- Retry failed chunks ---
+    if failed_chunks:
+        for retry_attempt in range(1, MAX_RETRIES + 1):
+            if not failed_chunks:
+                break
+            logger.info(f"Retrying {len(failed_chunks)} failed chunk(s) (attempt {retry_attempt}/{MAX_RETRIES})...")
+            await asyncio.sleep(RETRY_BACKOFF)
+            
+            still_failed = []
+            for orig_idx, chunk_dicts in failed_chunks:
+                logger.info(f"Retrying chunk {orig_idx + 1} (attempt {retry_attempt}/{MAX_RETRIES})...")
+                success = await _process_single_chunk(chunk_dicts, orig_idx + 1, len(chunks))
+                if success is None:
+                    break
+                elif success >= 0:
+                    total_findings += success
+                    errors -= 1  # Recovered
+                else:
+                    still_failed.append((orig_idx, chunk_dicts))
+            failed_chunks = still_failed
+        
+        if failed_chunks:
+            logger.warning(f"{len(failed_chunks)} chunk(s) still failed after {MAX_RETRIES} retries. Items remain in queue.")
+
     logger.info(f"Phase 2 Complete: {total_findings} valid new findings added to DB. Errors: {errors}")
+
+
+async def _process_single_chunk(chunk_dicts, chunk_num, total_chunks):
+    """Process a single chunk. Returns: findings_count (>=0) on success, -1 on failure, None on cancel."""
+    from backend.db.database import update_raw_item_status
+    from backend.collector.sources import RawItem
+    from backend.collector.deduplicator import deduplicate_finding
+    from backend.collector.analyzer import analyse_chunk
+
+    try:
+        raw_objects = [
+            RawItem(
+                title=r["title"],
+                url=r["url"],
+                raw_text=r["raw_text"],
+                source_name=r["source_name"],
+                fetched_at=r["fetched_at"]
+            ) for r in chunk_dicts
+        ]
+        
+        findings, success = await analyse_chunk(raw_objects)
+        
+        if success:
+            count = 0
+            for finding in findings:
+                try:
+                    action, _ = deduplicate_finding(finding)
+                    if action == "inserted":
+                        count += 1
+                except Exception as e:
+                    logger.error(f"Error storing finding '{finding.title[:50]}': {e}")
+            
+            for r in chunk_dicts:
+                update_raw_item_status(r["id"], "Processed")
+            return count
+        else:
+            logger.error(f"Chunk {chunk_num} failed.")
+            return -1
+            
+    except asyncio.CancelledError:
+        logger.info("Collector interrupted! Gracefully exiting phase 2...")
+        return None
+    except Exception as e:
+        logger.error(f"Analysis task error on chunk {chunk_num}: {e}")
+        return -1
 
 
 # ---------------------------------------------------------------------------
